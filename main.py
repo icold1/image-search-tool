@@ -37,8 +37,9 @@ from ui.tray import TrayIcon
 def _quit_log(msg: str):
     """退出路径日志（定位退出码 1 / QThreadStorage 警告用）。"""
     try:
+        import datetime
         with open(cfg.DATA_DIR / "quit.log", "a", encoding="utf-8") as f:
-            f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+            f.write(f"{datetime.datetime.now().strftime('%H:%M:%S.%f')} {msg}\n")
     except Exception:
         pass
 
@@ -59,8 +60,6 @@ def main():
                 auto_ms = int(a.split("=", 1)[1])
             except ValueError:
                 auto_ms = None
-    if auto_ms is not None:
-        QTimer.singleShot(auto_ms, app.quit)
 
     # 调试用：--auto-search=词 启动 3 秒后自动触发一次查询（配合退出测试）
     auto_search = None
@@ -83,6 +82,18 @@ def main():
     ball = FloatingBall(conf)
     panel = SearchPanel(conf, store)
     tray = TrayIcon(conf)
+
+    def request_quit():
+        """统一退出入口：先标记悬浮球为"明确关闭"。
+
+        Qt 退出序列会先隐藏所有顶层窗口、后发 aboutToQuit——
+        提前标记可避免退出时的正常隐藏被误记入诊断日志。
+        """
+        ball.mark_shutdown()
+        app.quit()
+
+    if auto_ms is not None:
+        QTimer.singleShot(auto_ms, request_quit)
     tray.show()
     tray.set_status(store.count())
 
@@ -143,14 +154,14 @@ def main():
         lambda: panel.follow_ball(ball.frameGeometry()))
     ball.refresh_requested.connect(start_index)
     ball.topk_changed.connect(on_topk_changed)
-    ball.quit_requested.connect(app.quit)
+    ball.quit_requested.connect(request_quit)
     panel.remove_requested.connect(on_remove)
 
     tray.toggle_panel.connect(lambda: panel.toggle_near(ball.frameGeometry()))
     tray.ball_visibility_changed.connect(on_ball_visibility)
     tray.refresh_requested.connect(start_index)
     tray.topk_changed.connect(on_topk_changed)
-    tray.quit_requested.connect(app.quit)
+    tray.quit_requested.connect(request_quit)
 
     hotkey = HotkeyThread(conf.get("hotkey", "Ctrl+Shift+Space"))
     hotkey.triggered.connect(lambda: panel.toggle_near(ball.frameGeometry()))
@@ -170,7 +181,7 @@ def main():
 
     def on_quit():
         _quit_log("on_quit 开始")
-        ball.mark_shutdown()   # 退出销毁窗口属正常隐藏，不记诊断日志
+        ball.mark_shutdown()   # 兜底：退出销毁窗口属正常隐藏，不记诊断日志
         ball.save_position()
         cfg.save_config(conf)
         tray.hide()

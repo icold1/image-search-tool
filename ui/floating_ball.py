@@ -1,5 +1,4 @@
 """屏幕置顶悬浮球：可拖动、单击呼出查询面板、右键菜单。"""
-import time
 import traceback
 from pathlib import Path
 
@@ -16,10 +15,12 @@ _HIDE_LOG = (Path(__file__).resolve().parent.parent / "data" / "ball_hide.log")
 def _log_hide(reason: str) -> None:
     """悬浮球被隐藏时的诊断日志（排查"神秘消失"问题）。"""
     try:
+        import datetime
         _HIDE_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(_HIDE_LOG, "a", encoding="utf-8") as f:
-            f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] {reason}\n")
-            f.write("".join(traceback.format_stack(limit=8)))
+            f.write(f"\n[{datetime.datetime.now().strftime('%H:%M:%S.%f')}] "
+                    f"{reason}\n")
+            f.write("".join(traceback.format_stack(limit=12)))
     except Exception:
         pass
 
@@ -79,7 +80,8 @@ class FloatingBall(QWidget):
 
     def hideEvent(self, event):
         if not self._explicit_hidden:
-            _log_hide("hideEvent：悬浮球被隐藏（非用户主动）")
+            _log_hide("hideEvent：悬浮球被隐藏（非用户主动，"
+                      f"explicit_hidden={self._explicit_hidden}）")
         super().hideEvent(event)
 
     # ---------- 绘制 ----------
