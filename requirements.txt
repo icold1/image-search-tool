@@ -10,3 +10,8 @@ regex
 timm
 rapidocr_onnxruntime   # 图片文字识别（PP-OCRv4，CPU）
 jieba                 # 中文分词（文字倒排索引）
+# ---------- caption 第二期（可选，不影响基础功能） ----------
+transformers>=4.51     # Qwen3-VL / Qwen2.5-VL / Qwen3-Embedding 推理
+modelscope             # 权重下载（国内直连快，失败自动回退 HuggingFace）
+# openai               # 仅"手动触发"云端 caption（DashScope qwen3-vl-plus）时需要
+# auto-gptq            # 仅 Qwen2.5-VL-7B INT4 量化权重时需要（8GB 卡选装）

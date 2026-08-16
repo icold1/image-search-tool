@@ -62,7 +62,10 @@ class TextIndex:
         toks.update(m.lower() for m in re.findall(r"[A-Za-z0-9]{2,}", text))
         return toks
 
-    def search(self, query: str, limit: int = 100) -> List[Tuple[int, float]]:
+    def search(self, query: str, limit: int = 100,
+               stop=None) -> List[Tuple[int, float]]:
+        """检索。stop 为可选 threading.Event，置位时抛 SearchCancelled。"""
+        from core.searcher import SearchCancelled
         qtoks = self._tokenize(query)
         if not qtoks:
             return []
@@ -72,7 +75,11 @@ class TextIndex:
                 scores[rid] += 1.0 / len(qtoks)
         q = query.strip().lower()
         if q:
+            checked = 0
             for rid, text in self._texts.items():
+                checked += 1
+                if stop is not None and (checked % 4096 == 0) and stop.is_set():
+                    raise SearchCancelled()
                 if q in text.lower():
                     scores[rid] += 0.5
         ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))

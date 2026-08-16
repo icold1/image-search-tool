@@ -1,8 +1,10 @@
-"""核心管线：模型加载、建索引、查询。
+"""核心管线：模型加载、建索引、caption、查询。
 
 与 UI 完全解耦：既可以被 QThread 包装（GUI 模式），
 也可以被脚本/冒烟测试直接同步调用。
 """
+import json
+import os
 import re
 import time
 from pathlib import Path
@@ -12,6 +14,7 @@ from core import config as cfg
 from core import model as ml
 from core import scanner
 from core import thumbnailer
+from core.searcher import SearchCancelled  # 再导出，worker 统一从这里引用
 
 _skip_log = cfg.DATA_DIR / "skipped.log"
 
@@ -27,10 +30,19 @@ def log_skip(path: str, exc: Exception) -> None:
 
 def ensure_model(model_name: str = "ViT-L-14", device: str = "auto",
                  message: Optional[Callable[[str], None]] = None) -> None:
+    """确保 CLIP 已加载（经 model_manager 统一管理，支持空闲卸载）。"""
+    from core import model_manager
+    mgr = model_manager.ModelManager.get()
+    idle = int(cfg.load_config().get("idle_unload_seconds", 0))
+    mgr.slot("clip", idle_seconds=idle).configure(
+        lambda: ml.load_model(model_name, device, str(cfg.MODEL_DIR)),
+        unload_fn=ml.unload)
     if not ml.is_loaded():
         if message:
             message("正在加载模型（首次运行需下载权重约 1.6GB，请耐心等待）...")
-        ml.load_model(model_name, device, str(cfg.MODEL_DIR))
+        mgr.acquire("clip")
+    else:
+        mgr.touch("clip")
 
 
 def build_index(store, image_dir: str, model_name: str = "ViT-L-14",
@@ -77,8 +89,11 @@ def build_index(store, image_dir: str, model_name: str = "ViT-L-14",
             vecs = ml.encode_images([img for _, img in items], batch_size)
             for (f, img), v in zip(items, vecs):
                 try:
+                    # 内容变更过的文件（路径已存在）必须重建缩略图，
+                    # 否则展示的是过期缩略图
+                    force_thumb = store.row_by_path(f.path) is not None
                     thumb = thumbnailer.save_thumbnail(
-                        img, tdir, f.path, thumb_size)
+                        img, tdir, f.path, thumb_size, force=force_thumb)
                     fmt = (img.format or Path(f.path).suffix.lstrip(".")).upper()
                     row = store.row_by_path(f.path)
                     if row is None:
@@ -86,7 +101,8 @@ def build_index(store, image_dir: str, model_name: str = "ViT-L-14",
                                      img.width, img.height, fmt, thumb, v)
                         added += 1
                     else:
-                        store.update(row, f.path, f.mtime, v)
+                        store.update(row, f.path, f.mtime, f.size,
+                                     img.width, img.height, fmt, thumb, v)
                         updated += 1
                 except Exception as e:
                     skipped += 1
@@ -140,37 +156,88 @@ def build_index(store, image_dir: str, model_name: str = "ViT-L-14",
 
 
 def search(store, query_text: str, k: int, model_name: str = "ViT-L-14",
-           device: str = "auto") -> List[tuple]:
-    """文本查询，返回 [(meta_dict, clip_score, text_score|None)]。
+           device: str = "auto", stop=None) -> List[tuple]:
+    """文本查询（三路融合），返回 [(meta, score, text_score, desc|None)]。
 
-    排序规则（文字优先 + 语义综合）：
-      1. OCR 文字命中者排最前：按文字分降序、语义分降序；
-      2. 其余按语义相似度降序补足到 k。
-    支持空格/逗号分隔多词：语义侧各词向量取平均后检索。
+    - meta: 图片元数据 dict
+    - score: 展示分（OCR 命中=CLIP 相似度；融合结果=RRF 融合分）
+    - text_score: OCR 文字命中分（None 表示未命中文字）
+    - desc: caption 向量命中信息 {"score": float, "line": str}（None 表示未命中）
+
+    排序规则（保持现状语义：文字优先）：
+      1. OCR 文字命中者排最前（按文字分降序）；
+      2. 其余按 RRF 融合分（CLIP + caption 两路）降序补足到 k；
+         caption 索引缺失/禁用时自动降级为纯 CLIP（与旧行为一致）。
+
+    stop: 可选 threading.Event，置位时抛 SearchCancelled（取消在途查询）。
     """
     from core import searcher, textindex
+    if stop is not None and stop.is_set():
+        raise SearchCancelled()
     ensure_model(model_name, device)
     parts = [p for p in re.split(r"[\s,，]+", query_text.strip()) if p]
     feats = ml.encode_text(parts if parts else [query_text])
+    if stop is not None and stop.is_set():
+        raise SearchCancelled()
     q = feats.mean(axis=0, keepdims=True)
+
+    conf = cfg.load_config()
+    fus = conf.get("fusion") or {}
+    cand_n = max(k, int(fus.get("candidate_n", 100)))
+    w_clip = float(fus.get("w_clip", 1.0))
+    w_caption = float(fus.get("w_caption", 0.6))
+    rrf_k = float(fus.get("rrf_k", 60))
+
     with store.lock():  # 序列化并发查询与索引写入，保护 sqlite 连接与向量矩阵
         mask = store.valid_mask()
-        hits = searcher.search(q, store.vectors, mask, k)
 
+        # ---- 路 1：CLIP 全局语义 ----
         clip_map = {}
-        clip_order = []
-        for row_idx, score in hits:
+        clip_rank = {}
+        for rank, (row_idx, score) in enumerate(
+                searcher.search(q, store.vectors, mask, cand_n)):
             meta = store.get_meta(row_idx + 1)
             if meta and Path(meta["path"]).exists():
-                clip_map[meta["id"]] = (meta, score)
-                clip_order.append(meta["id"])
+                clip_map[meta["id"]] = (meta, float(score))
+                clip_rank[meta["id"]] = rank
+        clip_order = list(clip_map)
+
+        # ---- 路 2：caption 文本向量（失败/缺失自动降级，不影响主路）----
+        desc_rank = {}  # row_id -> (rank, score, hit_line)
+        if conf.get("caption_search_enabled", True):
+            try:
+                from core import captionindex, embed
+                dim = int(conf.get("embed_dim", 1024))
+                ci = captionindex.get_index(store)
+                if ci.ensure_loaded(dim):
+                    eq = embed.query_vector(
+                        query_text,
+                        conf.get("embed_model", "Qwen/Qwen3-Embedding-0.6B"),
+                        conf.get("device", "auto"), dim,
+                        model_dir=str(cfg.MODEL_DIR))
+                    if stop is not None and stop.is_set():
+                        raise SearchCancelled()
+                    for rank, (rid, cscore, line) in enumerate(
+                            ci.search(eq, cand_n)):
+                        desc_rank[rid] = (rank, cscore, line)
+            except SearchCancelled:
+                raise
+            except Exception as e:
+                log_skip("caption-search", e)
+
+        # ---- RRF 融合打分 ----
+        fused = {}
+        for rid, rank in clip_rank.items():
+            fused[rid] = fused.get(rid, 0.0) + w_clip / (rrf_k + rank + 1)
+        for rid, (rank, _s, _l) in desc_rank.items():
+            fused[rid] = fused.get(rid, 0.0) + w_caption / (rrf_k + rank + 1)
 
         out = []
         used = set()
 
-        # 文字命中（优先，不受语义 top-k 限制）
+        # ---- OCR 文字命中（保持现状：置顶优先，不受融合分限制）----
         ti = textindex.get_index(store)
-        for row_id, tscore in ti.search(query_text, limit=k):
+        for row_id, tscore in ti.search(query_text, limit=k, stop=stop):
             if row_id in clip_map:
                 meta, clip = clip_map[row_id]
             else:
@@ -181,13 +248,134 @@ def search(store, query_text: str, k: int, model_name: str = "ViT-L-14",
                     clip = float(store.vectors[row_id - 1] @ q[0])
                 else:
                     clip = 0.0
-            out.append((meta, clip, tscore))
+            out.append((meta, clip, tscore, None))
             used.add(meta["id"])
 
-        # 语义结果补足
-        for rid in clip_order:
-            if rid not in used:
+        # ---- 融合结果补足 ----
+        ids = sorted(set(clip_order) | set(desc_rank),
+                     key=lambda r: -fused.get(r, -1.0))
+        for rid in ids:
+            if rid in used or len(out) >= k:
+                continue
+            if rid in clip_map:
                 meta, clip = clip_map[rid]
-                out.append((meta, clip, None))
+            else:
+                meta = store.get_meta(rid)
+                if not meta or not Path(meta["path"]).exists():
+                    continue
+                if rid - 1 < store.vectors.shape[0]:
+                    clip = float(store.vectors[rid - 1] @ q[0])
+                else:
+                    clip = 0.0
+            if rid in desc_rank:
+                _r, cscore, line = desc_rank[rid]
+                desc = {"score": cscore, "line": line}
+            else:
+                desc = None
+            out.append((meta, float(fused.get(rid, clip)), None, desc))
 
         return out[:k]
+
+
+def build_captions(store, model_name: Optional[str] = None,
+                   device: str = "auto", batch_size: int = 1,
+                   include_failed: bool = False, force: bool = False,
+                   only_paths: Optional[List[str]] = None,
+                   progress: Optional[Callable[[int, int, float], None]] = None,
+                   message: Optional[Callable[[str], None]] = None,
+                   stop=None) -> dict:
+    """后台图像描述（增量 + 断点续传 + 逐图失败隔离）。
+
+    每张完成立即写库（不学参考项目"结尾一次性写文件"的丢失风险），
+    中断后重跑自动跳过已完成的行。
+    only_paths: 仅处理这些绝对路径（试跑/验证用），None 表示全部。
+    返回统计 dict。
+    """
+    from core import captioner, model_manager
+    conf = cfg.load_config()
+    model_name = model_name or conf.get("caption_model",
+                                        "Qwen/Qwen3-VL-2B-Instruct")
+    device = device or conf.get("caption_device", "auto")
+    if not conf.get("caption_enabled", True) and not force:
+        if message:
+            message("caption 功能已在配置中关闭，跳过（可用 --force 强制执行）")
+        return {"total": 0, "done": 0, "ok": 0, "failed": 0}
+
+    mgr = model_manager.ModelManager.get()
+    # 腾显存给 VLM（8GB 卡）：卸载嵌入模型；caption_keep_clip=False 时连 CLIP 也卸
+    mgr.unload("embed")
+    if not conf.get("caption_keep_clip", True):
+        mgr.unload("clip")
+
+    try:
+        cap = captioner.make_captioner(
+            model_name, device, str(cfg.MODEL_DIR),
+            max_new_tokens=int(conf.get("caption_max_new_tokens", 600)))
+    except Exception as e:
+        raise RuntimeError(f"caption 模型加载失败: {e}") from e
+
+    pending = store.rows_missing_caption(include_failed)
+    if only_paths:
+        only = {os.path.abspath(p) for p in only_paths}
+        pending = [(rid, p) for rid, p in pending if p in only]
+    total = len(pending)
+    if message:
+        message(f"开始图像描述（共 {total} 张，本地 VLM 较慢，可暂停续传）...")
+    done = ok = failed = 0
+    t0 = time.time()
+    try:
+        for i, (row_id, path) in enumerate(pending):
+            if stop is not None and stop.is_set():
+                if message:
+                    message("已暂停，进度已保存（可随时重跑续传）")
+                break
+            try:
+                img = thumbnailer.load_image(path)
+                data = cap.describe(img)
+                store.set_caption(row_id, json.dumps(data, ensure_ascii=False))
+                ok += 1
+            except Exception as e:
+                failed += 1
+                store.set_caption(row_id, None, status="failed",
+                                  error=str(e)[:500])
+                log_skip(path, e)
+            done += 1
+            if progress and (done % 5 == 0 or done == total):
+                elapsed = time.time() - t0
+                eta = (elapsed / max(done, 1)) * (total - done)
+                progress(done, total, eta)
+    finally:
+        # VLM 批次结束必须卸载（8GB 卡：caption 阶段后腾出显存给检索模型）
+        mgr.unload("vlm")
+    return {"total": total, "done": done, "ok": ok, "failed": failed}
+
+
+def build_caption_vectors(store, embed_model: Optional[str] = None,
+                          dim: Optional[int] = None,
+                          device: str = "auto",
+                          progress: Optional[Callable[[int, int, float],
+                                                      None]] = None,
+                          message: Optional[Callable[[str], None]] = None,
+                          stop=None) -> dict:
+    """把已有 caption 构建为字段化行向量矩阵（可重跑，整表替换）。"""
+    from core import captionindex, embed, model_manager
+    conf = cfg.load_config()
+    embed_model = embed_model or conf.get("embed_model",
+                                          "Qwen/Qwen3-Embedding-0.6B")
+    dim = int(dim or conf.get("embed_dim", 1024))
+    mgr = model_manager.ModelManager.get()
+    idle = int(conf.get("idle_unload_seconds", 0))
+    mgr.slot("embed", idle_seconds=idle).configure(
+        lambda: embed.load(embed_model, device, str(cfg.MODEL_DIR)),
+        unload_fn=embed.unload)
+    if not embed.is_loaded():
+        if message:
+            message("正在加载文本嵌入模型（首次运行需下载权重约 1.2GB）...")
+        mgr.acquire("embed")
+    ci = captionindex.get_index(store)
+    stats = ci.build(embed, dim, embed_model=embed_model,
+                     progress=progress, message=message, stop=stop)
+    if message:
+        message(f"caption 向量构建完成：{stats['images']} 张 / "
+                f"{stats['lines']} 行")
+    return stats

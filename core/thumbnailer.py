@@ -38,9 +38,14 @@ def load_image(image_path: str, max_pixels: int = MAX_PIXELS) -> Image.Image:
 
 
 def save_thumbnail(img: Image.Image, thumbs_dir: str, image_path: str,
-                   size: int = 256) -> str:
-    """从已加载的 PIL 图生成缩略图，返回缩略图路径；已存在则跳过。"""
+                   size: int = 256, force: bool = False) -> str:
+    """从已加载的 PIL 图生成缩略图，返回缩略图路径；已存在则跳过。
+
+    force=True 时无条件重建（图片内容已变更、旧缩略图过期时使用）。
+    """
     out = thumb_path_for(thumbs_dir, image_path)
+    if force and Path(out).exists():
+        Path(out).unlink()
     if not Path(out).exists():
         Path(thumbs_dir).mkdir(parents=True, exist_ok=True)
         im = img.copy()
@@ -49,6 +54,8 @@ def save_thumbnail(img: Image.Image, thumbs_dir: str, image_path: str,
     return out
 
 
-def make_thumbnail(image_path: str, thumbs_dir: str, size: int = 256) -> str:
+def make_thumbnail(image_path: str, thumbs_dir: str, size: int = 256,
+                   force: bool = False) -> str:
     """按路径生成缩略图（会重新打开图片），返回缩略图路径。"""
-    return save_thumbnail(load_image(image_path), thumbs_dir, image_path, size)
+    return save_thumbnail(load_image(image_path), thumbs_dir, image_path, size,
+                          force=force)

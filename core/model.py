@@ -49,12 +49,12 @@ def get_device(pref: str = "auto") -> str:
 
 
 def load_model(model_name: str = "ViT-L-14", device: str = "auto",
-               model_dir: str = "") -> None:
-    """加载模型（线程安全、幂等）。"""
+               model_dir: str = ""):
+    """加载模型（线程安全、幂等）。返回模型对象（供 model_manager 持有）。"""
     global _model, _preprocess, _device
     with _lock:
         if _model is not None:
-            return
+            return _model
         _install_flash_attn_stub()
         import cn_clip.clip as clip  # 延迟导入，避免拖慢 UI 启动
         dev = get_device(device)
@@ -75,6 +75,26 @@ def load_model(model_name: str = "ViT-L-14", device: str = "auto",
                 raise
         model.eval()
         _model, _preprocess, _device = model, preprocess, dev
+        return model
+
+
+def unload() -> None:
+    """卸载模型并回收显存（线程安全）。
+
+    编码函数入口都先捕获本地引用，卸载不会导致进行中的编码崩溃。
+    """
+    global _model, _preprocess, _device
+    with _lock:
+        _model = None
+        _preprocess = None
+        _device = "cpu"
+    try:
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def is_loaded() -> bool:
@@ -83,7 +103,9 @@ def is_loaded() -> bool:
 
 def encode_text(texts: Sequence[str], batch_size: int = 64) -> np.ndarray:
     """文本 -> L2 归一化特征 (n, dim)。"""
-    if _model is None:
+    model = _model  # 捕获本地引用：期间被 unload 也不受影响
+    device = _device
+    if model is None:
         raise RuntimeError("模型未加载，请先调用 load_model()")
     import cn_clip.clip as clip
     if isinstance(texts, str):
@@ -93,8 +115,8 @@ def encode_text(texts: Sequence[str], batch_size: int = 64) -> np.ndarray:
     with torch.no_grad():
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            tokens = clip.tokenize(batch).to(_device)
-            f = _model.encode_text(tokens)
+            tokens = clip.tokenize(batch).to(device)
+            f = model.encode_text(tokens)
             f = f / f.norm(dim=-1, keepdim=True)
             feats.append(f.cpu().numpy())
     return np.concatenate(feats, axis=0)
@@ -102,7 +124,10 @@ def encode_text(texts: Sequence[str], batch_size: int = 64) -> np.ndarray:
 
 def encode_images(images, batch_size: int = 64) -> np.ndarray:
     """PIL 图像（或列表）-> L2 归一化特征 (n, dim)。"""
-    if _model is None:
+    model = _model  # 捕获本地引用：期间被 unload 也不受影响
+    preprocess = _preprocess
+    device = _device
+    if model is None:
         raise RuntimeError("模型未加载，请先调用 load_model()")
     if not isinstance(images, (list, tuple)):
         images = [images]
@@ -111,8 +136,8 @@ def encode_images(images, batch_size: int = 64) -> np.ndarray:
     with torch.no_grad():
         for i in range(0, len(images), batch_size):
             batch = images[i:i + batch_size]
-            tensors = torch.stack([_preprocess(img) for img in batch]).to(_device)
-            f = _model.encode_image(tensors)
+            tensors = torch.stack([preprocess(img) for img in batch]).to(device)
+            f = model.encode_image(tensors)
             f = f / f.norm(dim=-1, keepdim=True)
             feats.append(f.cpu().numpy())
     return np.concatenate(feats, axis=0)

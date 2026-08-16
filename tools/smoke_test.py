@@ -73,10 +73,33 @@ def main() -> int:
         t0 = time.time()
         res = pipeline.search(s, q, 3)
         ms = (time.time() - t0) * 1000
-        names = [Path(m["path"]).name for m, _, _ in res]
-        scores = [f"{sc:.3f}" for _, sc, _ in res]
+        names = [Path(m["path"]).name for m, _, _, _ in res]
+        scores = [f"{sc:.3f}" for _, sc, _, _ in res]
         print(f"      查询「{q}」-> {list(zip(names, scores))} ({ms:.0f}ms)")
     assert pipeline.search(s, "天空", 3), "查询无结果"
+
+    print("[5/5] caption 工具与原子保存验证（无需模型）...")
+    from core import captioner, captionindex
+    # JSON 清洗：代码块 + 前后缀污染
+    raw = "好的，结果如下：\n```json\n{\"background\": \"海边\", \"people\": []}\n```"
+    data = captioner.clean_caption_json(raw)
+    assert data.get("background") == "海边", f"清洗失败: {data}"
+    # 行文本生成：字段前缀 + 上限
+    lines = captionindex.caption_to_lines({
+        "background": "黄昏天台", "colors": "", "style": "胶片摄影",
+        "content": "人物合影", "people": [{"description": "红衣女性",
+        "action": "挥手", "special_name": ""}],
+        "objects": [], "text_elements": "春日特惠"})
+    assert any(l.startswith("背景: 黄昏天台") for l in lines), lines
+    assert len(lines) <= captionindex.MAX_LINES_PER_IMAGE
+    # 原子保存 + 回读
+    import numpy as np
+    tmp_path = SMOKE_ROOT / "atomic.npy"
+    st.Store.save_array(str(tmp_path), np.zeros((3, 4), dtype=np.float32))
+    loaded = np.load(tmp_path)
+    assert loaded.shape == (3, 4)
+    print("      caption 工具函数与原子保存 OK")
+
     s.close()
 
     print("\n[OK] 冒烟测试通过：核心链路（模型加载/索引/检索）正常。")

@@ -4,6 +4,10 @@ from typing import List, Tuple
 import numpy as np
 
 
+class SearchCancelled(Exception):
+    """查询被取消（worker.stop()/新查询顶替），调用方应静默丢弃。"""
+
+
 def search(text_feat: np.ndarray, vectors: np.ndarray, mask: np.ndarray,
            k: int = 10) -> List[Tuple[int, float]]:
     """返回 [(0 基行号, 相似度)] 按分数降序。

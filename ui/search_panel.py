@@ -41,11 +41,13 @@ class ResultThumb(QWidget):
     open_requested = Signal(str)
     remove_requested = Signal(str)
 
-    def __init__(self, meta: dict, score: float, text_score=None, parent=None):
+    def __init__(self, meta: dict, score: float, text_score=None, desc=None,
+                 parent=None):
         super().__init__(parent)
         self.path = meta["path"]
         self.score = score
         self.text_score = text_score
+        self.desc = desc          # {"score": float, "line": str} | None
         pm = (QPixmap(meta["thumb"])
               if meta.get("thumb") and Path(meta["thumb"]).exists()
               else QPixmap())
@@ -62,6 +64,9 @@ class ResultThumb(QWidget):
         if text_score is not None and meta.get("ocr"):
             snippet = " ".join(str(meta["ocr"]).split())[:80]
             tip += f"\n文字命中: {snippet}"
+        if desc is not None:
+            line = " ".join(str(desc.get("line", "")).split())[:120]
+            tip += f"\n描述命中: {line}"
         self.setToolTip(tip)
         self._press = None
         self._dragging = False
@@ -96,6 +101,19 @@ class ResultThumb(QWidget):
             f.setPixelSize(11)
             p.setFont(f)
             p.drawText(badge, Qt.AlignCenter, "文")
+            p.setFont(old_font)
+        # 描述（caption）命中角标
+        if self.desc is not None:
+            old_font = p.font()
+            badge = QRectF(x + 24, 6, 18, 16)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#3E9B5D"))
+            p.drawRoundedRect(badge, 4, 4)
+            p.setPen(QColor("white"))
+            f = p.font()
+            f.setPixelSize(11)
+            p.setFont(f)
+            p.drawText(badge, Qt.AlignCenter, "述")
             p.setFont(old_font)
         # 文件名（省略号截断）
         name = self.fontMetrics().elidedText(self._name, Qt.ElideMiddle,
@@ -284,12 +302,20 @@ class SearchPanel(QWidget):
         k = int(self._conf.get("top_k", 10))
         self._gen += 1
         gen = self._gen
+        # 取消在途旧查询：避免过期 GPU/CPU 工作继续占用资源
+        if self._search_worker is not None:
+            try:
+                self._search_worker.cancel()
+            except RuntimeError:
+                pass
         self.set_status("搜索中...")
         w = SearchWorker(self._store, text, k,
                          self._conf["model_name"], self._conf["device"],
+                         version=gen,
                          parent=self)  # 挂父对象：即使 Python 引用丢失，C++ 对象也不会在运行中被析构
-        w.results_ready.connect(lambda res, ms: self._on_results(res, ms, gen))
-        w.failed.connect(lambda msg: self._on_failed(msg, gen))
+        w.results_ready.connect(
+            lambda res, ms, v: self._on_results(res, ms, v))
+        w.failed.connect(lambda msg, v: self._on_failed(msg, v))
         # 线程结束后安全销毁 C++ 对象，避免"QThread 运行中被析构"崩溃
         w.finished.connect(w.deleteLater)
         self._search_worker = w
@@ -302,16 +328,21 @@ class SearchPanel(QWidget):
             return  # 过期结果，忽略
         self.clear_results()
         n_text = 0
-        for i, (meta, score, text_score) in enumerate(results):
+        n_desc = 0
+        for i, (meta, score, text_score, desc) in enumerate(results):
             if text_score is not None:
                 n_text += 1
-            w = ResultThumb(meta, score, text_score, self.container)
+            if desc is not None:
+                n_desc += 1
+            w = ResultThumb(meta, score, text_score, desc, self.container)
             w.open_requested.connect(os.startfile)
             w.remove_requested.connect(self.remove_requested)
             self.grid.addWidget(w, i // COLS, i % COLS)
         self._set_results_mode(bool(results))
         if results:
             extra = f" · 文字命中 {n_text} 张" if n_text else ""
+            if n_desc:
+                extra += f" · 描述命中 {n_desc} 张"
             self.set_status(f"找到 {len(results)} 张{extra}"
                             f" · {(ms / 1000):.2f} 秒 · 单击打开，拖到微信发送")
         else:
