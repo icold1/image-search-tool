@@ -59,9 +59,8 @@ class ResultThumb(QWidget):
                              Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.setFixedSize(THUMB, self._pm.height() + 22)
         self._name = Path(self.path).name
-        # 悬停信息改为面板状态栏展示（Tooltip 在深色主题下会渲染成
-        # 跟随鼠标的黑色矩形且不可读）
-        info = f"{self._name}  ·  相似度 {self.score:.3f}"
+        # 悬停信息在面板状态栏展示（不显示匹配度数值，仅展示命中内容）
+        info = self._name
         if meta.get("width") and meta.get("height"):
             info += f"  ·  {meta['width']}x{meta['height']}"
         if text_score is not None and meta.get("ocr"):
@@ -90,16 +89,6 @@ class ResultThumb(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         x = (self.width() - self._pm.width()) // 2
         p.drawPixmap(x, 4, self._pm)
-        # 相似度角标
-        label = f"{self.score:.2f}"
-        tw = self.fontMetrics().horizontalAdvance(label) + 8
-        rect = QRectF(x + self._pm.width() - tw - 2,
-                      4 + self._pm.height() - 18, tw, 16)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(0, 0, 0, 150))
-        p.drawRoundedRect(rect, 4, 4)
-        p.setPen(QColor("white"))
-        p.drawText(rect, Qt.AlignCenter, label)
         # 文字命中角标（左上角）
         if self.text_score is not None:
             old_font = p.font()
