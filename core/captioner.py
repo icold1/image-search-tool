@@ -12,6 +12,7 @@ import base64
 import json
 import re
 import textwrap
+from typing import Optional
 
 CAPTION_FIELDS = (
     "background",    # 背景环境描述
@@ -81,12 +82,21 @@ def clean_caption_json(raw: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _str_field(v) -> str:
+    """字符串字段规整：str 直接取；list/array 换行拼接（JSON 语法约束下
+    模型可能把 text_elements 输出成数组）。"""
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, (list, tuple)):
+        return "\n".join(str(x).strip() for x in v if str(x).strip())
+    return ""
+
+
 def normalize_caption(data: dict) -> dict:
     """把模型输出规整为 schema 形态（全部字段存在、字符串化）。"""
     out = {}
     for f in ("background", "colors", "style", "content", "text_elements"):
-        v = data.get(f, "")
-        out[f] = str(v).strip() if isinstance(v, str) else ""
+        out[f] = _str_field(data.get(f, ""))
     people = []
     for p in (data.get("people") or []):
         if not isinstance(p, dict):
@@ -178,24 +188,46 @@ class LocalVlmCaptioner:
     def describe(self, image) -> dict:
         """PIL 图像 -> 规整后的 caption dict。失败抛 CaptionerError。
 
-        若因生成上限截断导致 JSON 解析失败，自动以 1.5 倍上限重试一次。
+        若因生成上限截断导致 JSON 解析失败，自动阶梯加大上限重试。
         """
         self._ensure()
         try:
-            raw = self._generate(image, self._max_new_tokens)
+            data, raw = _parse_with_retry(
+                lambda cap: self._generate(image, cap), self._max_new_tokens)
         except Exception as e:
             raise CaptionerError(f"VLM 推理失败: {e}") from e
-        data = clean_caption_json(raw)
-        if not data and self._max_new_tokens < 1536:
-            # 疑似 JSON 被截断：加大上限重试一次
-            try:
-                raw = self._generate(image, int(self._max_new_tokens * 1.5))
-            except Exception as e:
-                raise CaptionerError(f"VLM 重试失败: {e}") from e
-            data = clean_caption_json(raw)
         if not data:
             raise CaptionerError(f"caption 输出无法解析为 JSON: {raw[:120]!r}")
         return normalize_caption(data)
+
+
+def _parse_with_retry(generate_fn, max_new_tokens: int):
+    """生成 + 解析，JSON 解析失败时按 1.5x/2.5x 上限阶梯重试。
+
+    generate_fn(max_tokens) -> str。返回 (dict, raw)。文字密集图容易
+    撞 token 上限导致 JSON 截断，阶梯重试可救回绝大多数。
+    """
+    raw = generate_fn(max_new_tokens)
+    data = clean_caption_json(raw)
+    for mult in (1.5, 2.5):
+        if data:
+            break
+        cap = int(max_new_tokens * mult)
+        if cap > 1536 or cap <= max_new_tokens:
+            break
+        raw = generate_fn(cap)
+        data = clean_caption_json(raw)
+    return data, raw
+
+
+def _image_to_base64_jpeg(image, max_side: int = 1024, quality: int = 85) -> str:
+    """PIL 图像 -> JPEG base64（用于云端 API 与 llama-server）。"""
+    import io
+    buf = io.BytesIO()
+    img = image.convert("RGB")
+    img.thumbnail((max_side, max_side))
+    img.save(buf, "JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 class ApiCaptioner:
@@ -206,7 +238,6 @@ class ApiCaptioner:
         self._base_url = base_url
 
     def describe(self, image) -> dict:
-        import io
         try:
             from openai import OpenAI
         except ImportError as e:
@@ -215,11 +246,7 @@ class ApiCaptioner:
         api_key = os.getenv("ALIYUN_API_KEY")
         if not api_key or "xxxx" in api_key:
             raise CaptionerError("未配置有效的 ALIYUN_API_KEY")
-        buf = io.BytesIO()
-        img = image.convert("RGB")
-        img.thumbnail((1024, 1024))
-        img.save(buf, "JPEG", quality=85)
-        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        b64 = _image_to_base64_jpeg(image)
         client = OpenAI(api_key=api_key, base_url=self._base_url)
         try:
             resp = client.chat.completions.create(
@@ -242,9 +269,56 @@ class ApiCaptioner:
         return normalize_caption(data)
 
 
+class LlamaCppCaptioner:
+    """llama.cpp GGUF 后端（官方预编译 llama-server + 本地 HTTP）。
+
+    与 LocalVlmCaptioner 共用同一 schema/提示词/清洗逻辑；生成截断时
+    自动以 1.5 倍上限重试一次。速度取决于 llama.cpp 内核（Windows 上
+    显著快于无 flash-attn 的 transformers 解码）。
+    """
+
+    def __init__(self, model_path: str, mmproj_path: Optional[str] = None,
+                 bin_dir: Optional[str] = None, max_new_tokens: int = 600,
+                 n_gpu_layers: int = 999, ctx_size: int = 8192):
+        from core.llm_server import LlamaServer
+        self._model_path = model_path
+        self._max_new_tokens = max_new_tokens
+        self._server = LlamaServer(model_path, mmproj_path=mmproj_path,
+                                   bin_dir=bin_dir, n_gpu_layers=n_gpu_layers,
+                                   ctx_size=ctx_size)
+
+    def _ensure(self):
+        self._server.start()
+
+    def unload(self):
+        self._server.stop()
+
+    def describe(self, image) -> dict:
+        self._ensure()
+        b64 = _image_to_base64_jpeg(image)
+        try:
+            data, raw = _parse_with_retry(
+                lambda cap: self._server.chat(b64, CAPTION_PROMPT, cap),
+                self._max_new_tokens)
+        except Exception as e:
+            raise CaptionerError(f"llama-server 推理失败: {e}") from e
+        if not data:
+            raise CaptionerError(f"caption 输出无法解析为 JSON: {raw[:120]!r}")
+        return normalize_caption(data)
+
+
 def make_captioner(model_name: str, device: str = "auto",
-                   model_dir: str = "", max_new_tokens: int = 1024) -> LocalVlmCaptioner:
-    """创建本地 captioner，并注册到 model_manager（批次结束可统一卸载）。"""
+                   model_dir: str = "", max_new_tokens: int = 1024,
+                   mmproj_path: Optional[str] = None,
+                   llama_bin: Optional[str] = None):
+    """创建本地 captioner（transformers 或 GGUF 双后端，自动识别）。
+
+    model_name 以 .gguf 结尾 -> LlamaCppCaptioner（llama.cpp 后端）；
+    否则 -> LocalVlmCaptioner（transformers，注册到 model_manager）。
+    """
+    if model_name.lower().endswith(".gguf"):
+        return LlamaCppCaptioner(model_name, mmproj_path=mmproj_path,
+                                 bin_dir=llama_bin, max_new_tokens=max_new_tokens)
     from core import model_manager
     mgr = model_manager.ModelManager.get()
     slot = mgr.slot("vlm", idle_seconds=0)

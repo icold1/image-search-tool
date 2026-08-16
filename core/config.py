@@ -38,6 +38,9 @@ DEFAULT_CONFIG = {
     "caption_batch": 1,         # VLM 批大小（8GB 卡保持 1）
     "caption_max_new_tokens": 600,  # 单图生成上限（JSON 描述无需更长）
     "caption_keep_clip": True,  # caption 期间保留 CLIP 常驻（搜索可用）
+    # ---------- GGUF/llama.cpp 后端（caption_model 以 .gguf 结尾时启用）----------
+    "caption_mmproj": "",       # mmproj 视觉投影文件路径
+    "caption_llama_bin": "",    # llama-server.exe 所在目录（空=自动查找 data/deps）
     # ---------- caption 文本向量 ----------
     "embed_model": "Qwen/Qwen3-Embedding-0.6B",
     "embed_dim": 1024,          # MRL 截断维度（1024 全量，可降到 512 省内存）
@@ -51,6 +54,11 @@ DEFAULT_CONFIG = {
         "rrf_k": 60,             # RRF 常数
         "candidate_n": 100,      # 每路取 top-N 参与融合
     },
+    # ---------- 精排（交叉编码，可选）----------
+    "rerank_enabled": False,     # 默认关闭：首次启用需下载模型，建议准备好后手动开启
+    "rerank_model": "Qwen/Qwen3-Reranker-0.6B",
+    "rerank_top_n": 30,          # 对融合结果前 N 张做精排
+    "rerank_batch": 16,
     # ---------- API（仅手动触发）----------
     "api_manual_only": True,
 }

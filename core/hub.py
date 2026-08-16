@@ -20,6 +20,11 @@ def resolve_pretrained(name: str, model_dir: str = "") -> str:
         local = Path(model_dir) / name.replace("/", "--")
         if local.is_dir():
             return str(local)
+    # 项目内 HF 完整仓库镜像（含模块化子目录，如 reranker 的 1_LogitScore/）
+    hf_local = (Path(__file__).resolve().parent.parent / "data" / "models"
+                / "cache" / "hf-models" / name.replace("/", "--"))
+    if hf_local.is_dir():
+        return str(hf_local)
     try:
         from modelscope import snapshot_download
         path = snapshot_download(name)

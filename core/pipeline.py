@@ -274,7 +274,57 @@ def search(store, query_text: str, k: int, model_name: str = "ViT-L-14",
                 desc = None
             out.append((meta, float(fused.get(rid, clip)), None, desc))
 
+        # ---- 精排（可选）：对融合结果前 N 张做交叉编码重排 ----
+        if conf.get("rerank_enabled", False):
+            try:
+                out = _rerank_results(out, query_text, conf, stop)
+            except SearchCancelled:
+                raise
+            except Exception as e:
+                log_skip("rerank", e)
+
         return out[:k]
+
+
+def _doc_for_rerank(meta: dict, desc) -> str:
+    """精排用的文档文本：描述命中行 > caption 内容 > OCR 文本。"""
+    if desc is not None:
+        return str(desc.get("line", ""))[:300]
+    cap = meta.get("caption")
+    if cap:
+        try:
+            data = json.loads(cap)
+            content = data.get("content") or data.get("background") or ""
+            if content:
+                return str(content)[:300]
+        except Exception:
+            pass
+    return str(meta.get("ocr") or "")[:300]
+
+
+def _rerank_results(out: List[tuple], query_text: str, conf: dict,
+                    stop=None) -> List[tuple]:
+    """用 Qwen3-Reranker 对融合结果重排；OCR 命中保持置顶不动。"""
+    from core import reranker
+    top_n = int(conf.get("rerank_top_n", 30))
+    if len(out) < 2 or top_n < 2:
+        return out
+    ocr_part = [r for r in out if r[2] is not None]      # 文字命中，保持原序
+    rest = [r for r in out if r[2] is None]
+    targets = rest[:top_n]
+    docs = [_doc_for_rerank(meta, desc) for meta, _s, _ts, desc in targets]
+    if not docs or not any(docs):
+        return out
+    reranker.ensure_reranker(
+        conf.get("rerank_model", "Qwen/Qwen3-Reranker-0.6B"),
+        conf.get("device", "auto"), str(cfg.MODEL_DIR))
+    if stop is not None and stop.is_set():
+        raise SearchCancelled()
+    scores = reranker.rerank(query_text, docs,
+                             batch_size=int(conf.get("rerank_batch", 16)))
+    ranked = sorted(zip(scores, targets), key=lambda kv: -kv[0])
+    new_rest = [t for _, t in ranked] + rest[top_n:]
+    return ocr_part + new_rest
 
 
 def build_captions(store, model_name: Optional[str] = None,
@@ -302,15 +352,18 @@ def build_captions(store, model_name: Optional[str] = None,
         return {"total": 0, "done": 0, "ok": 0, "failed": 0}
 
     mgr = model_manager.ModelManager.get()
-    # 腾显存给 VLM（8GB 卡）：卸载嵌入模型；caption_keep_clip=False 时连 CLIP 也卸
+    # 腾显存给 VLM（8GB 卡）：卸载嵌入/精排模型；caption_keep_clip=False 时连 CLIP 也卸
     mgr.unload("embed")
+    mgr.unload("reranker")
     if not conf.get("caption_keep_clip", True):
         mgr.unload("clip")
 
     try:
         cap = captioner.make_captioner(
             model_name, device, str(cfg.MODEL_DIR),
-            max_new_tokens=int(conf.get("caption_max_new_tokens", 600)))
+            max_new_tokens=int(conf.get("caption_max_new_tokens", 600)),
+            mmproj_path=conf.get("caption_mmproj") or None,
+            llama_bin=conf.get("caption_llama_bin") or None)
     except Exception as e:
         raise RuntimeError(f"caption 模型加载失败: {e}") from e
 
@@ -345,8 +398,14 @@ def build_captions(store, model_name: Optional[str] = None,
                 eta = (elapsed / max(done, 1)) * (total - done)
                 progress(done, total, eta)
     finally:
-        # VLM 批次结束必须卸载（8GB 卡：caption 阶段后腾出显存给检索模型）
+        # VLM 批次结束必须卸载（8GB 卡：caption 阶段后腾出显存给检索模型）；
+        # GGUF 后端同时停掉 llama-server 进程
         mgr.unload("vlm")
+        if hasattr(cap, "unload"):
+            try:
+                cap.unload()
+            except Exception:
+                pass
     return {"total": total, "done": done, "ok": ok, "failed": failed}
 
 
