@@ -1,0 +1,12 @@
+# 核心依赖（建议在 image_caption_and_select conda 环境中安装）
+torch>=2.8             # GPU 需 cu128 版本（RTX 5060 / Blackwell）
+torchvision>=0.23
+cn_clip>=1.6           # Chinese-CLIP（注意：需用 --no-deps 安装，跳过 lmdb，见 README）
+PySide6==6.9.2         # 悬浮球 UI（6.11.1 的 Qt6Core.dll 符号缺失，勿升级）
+Pillow>=10
+numpy>=1.26
+ftfy
+regex
+timm
+rapidocr_onnxruntime   # 图片文字识别（PP-OCRv4，CPU）
+jieba                 # 中文分词（文字倒排索引）
