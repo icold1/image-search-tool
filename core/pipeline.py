@@ -327,6 +327,35 @@ def _rerank_results(out: List[tuple], query_text: str, conf: dict,
     return ocr_part + new_rest
 
 
+def _resource_warning() -> str:
+    """caption 前预检：内存/显存紧张时返回提示（供 message 输出）。"""
+    msgs = []
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        free_gb = vm.available / 1024**3
+        if free_gb < 2.0:
+            msgs.append(f"系统可用内存仅 {free_gb:.1f}GB"
+                        f"（共 {vm.total/1024**3:.1f}GB），建议关闭部分程序")
+    except Exception:
+        pass
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+        used, total = (int(x) for x in out.stdout.strip().split(","))
+        free_mb = total - used
+        if free_mb < 6800:
+            msgs.append(f"显存可用仅 {free_mb}MB（caption 峰值需约 6300MB），"
+                        f"请关闭悬浮球/ComfyUI 等占用显存的程序")
+    except Exception:
+        pass
+    return "；".join(msgs)
+
+
 def build_captions(store, model_name: Optional[str] = None,
                    device: str = "auto", batch_size: int = 1,
                    include_failed: bool = False, force: bool = False,
@@ -363,9 +392,14 @@ def build_captions(store, model_name: Optional[str] = None,
             model_name, device, str(cfg.MODEL_DIR),
             max_new_tokens=int(conf.get("caption_max_new_tokens", 600)),
             mmproj_path=conf.get("caption_mmproj") or None,
-            llama_bin=conf.get("caption_llama_bin") or None)
+            llama_bin=conf.get("caption_llama_bin") or None,
+            ctx_size=int(conf.get("caption_ctx_size", 8192)))
     except Exception as e:
         raise RuntimeError(f"caption 模型加载失败: {e}") from e
+
+    warn = _resource_warning()
+    if warn and message:
+        message(f"资源预检：{warn}")
 
     pending = store.rows_missing_caption(include_failed)
     if only_paths:

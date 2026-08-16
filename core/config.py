@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     # ---------- GGUF/llama.cpp 后端（caption_model 以 .gguf 结尾时启用）----------
     "caption_mmproj": "",       # mmproj 视觉投影文件路径
     "caption_llama_bin": "",    # llama-server.exe 所在目录（空=自动查找 data/deps）
+    "caption_ctx_size": 8192,   # llama-server 上下文长度（显存紧张可降到 4096）
     # ---------- caption 文本向量 ----------
     "embed_model": "Qwen/Qwen3-Embedding-0.6B",
     "embed_dim": 1024,          # MRL 截断维度（1024 全量，可降到 512 省内存）

@@ -310,7 +310,8 @@ class LlamaCppCaptioner:
 def make_captioner(model_name: str, device: str = "auto",
                    model_dir: str = "", max_new_tokens: int = 1024,
                    mmproj_path: Optional[str] = None,
-                   llama_bin: Optional[str] = None):
+                   llama_bin: Optional[str] = None,
+                   ctx_size: int = 8192):
     """创建本地 captioner（transformers 或 GGUF 双后端，自动识别）。
 
     model_name 以 .gguf 结尾 -> LlamaCppCaptioner（llama.cpp 后端）；
@@ -318,7 +319,9 @@ def make_captioner(model_name: str, device: str = "auto",
     """
     if model_name.lower().endswith(".gguf"):
         return LlamaCppCaptioner(model_name, mmproj_path=mmproj_path,
-                                 bin_dir=llama_bin, max_new_tokens=max_new_tokens)
+                                 bin_dir=llama_bin,
+                                 max_new_tokens=max_new_tokens,
+                                 ctx_size=ctx_size)
     from core import model_manager
     mgr = model_manager.ModelManager.get()
     slot = mgr.slot("vlm", idle_seconds=0)
