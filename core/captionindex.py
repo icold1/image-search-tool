@@ -21,7 +21,12 @@ MAX_LINES_PER_IMAGE = 12
 
 
 def caption_to_lines(caption: dict) -> List[str]:
-    """把 caption dict 转成带字段前缀的检索行（≤12 行）。"""
+    """把 caption dict 转成带字段前缀的检索行（≤12 行）。
+
+    注意：不含"文字元素"行——图中文字已由 OCR 倒排索引独立覆盖，
+    caption 路重复放文字行会把梗图文本噪声带进语义检索（实测大量
+    无关查询被随机梗图文字吸引），故仅保留视觉语义字段。
+    """
     lines: List[str] = []
 
     def push(line: str, cap: int = 400) -> None:
@@ -47,9 +52,6 @@ def caption_to_lines(caption: dict) -> List[str]:
             continue
         push(f"物体: {obj.get('name', '')} {obj.get('description', '')} "
              f"{obj.get('location', '')}".rstrip())
-    te = caption.get("text_elements", "")
-    if te:
-        push(f"文字元素: {te}", cap=300)
     return lines[:MAX_LINES_PER_IMAGE]
 
 
