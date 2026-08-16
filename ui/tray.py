@@ -92,3 +92,7 @@ class TrayIcon(QSystemTrayIcon):
 
     def set_ball_checked(self, visible: bool):
         self._act_ball.setChecked(visible)
+
+    def is_ball_visible(self) -> bool:
+        """悬浮球是否应可见（用户意图的权威状态）。"""
+        return self._act_ball.isChecked()

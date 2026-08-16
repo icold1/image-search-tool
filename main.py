@@ -22,7 +22,7 @@ from core._qt import ensure_qt_env
 ensure_env_dlls()   # 未激活 conda 环境时也能找到 cuDNN 等 DLL
 ensure_qt_env()     # 保证能找到 Qt 平台插件 qwindows.dll
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog
 
 from core import config as cfg
@@ -47,6 +47,9 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("图片语义搜索")
     app.setQuitOnLastWindowClosed(False)
+    # 全局 QToolTip 样式：避免深色系统主题下提示框显示为不可读的黑块
+    app.setStyleSheet("QToolTip { background-color: #343b47; color: #eef1f6;"
+                      " border: 1px solid #4a5568; padding: 4px 8px; }")
 
     # 调试用：--auto-quit-ms=N 启动 N 毫秒后自动走正常退出流程
     auto_ms = None
@@ -119,7 +122,10 @@ def main():
         tray.set_topk(k)
 
     def on_ball_visibility(v: bool):
+        ball.set_explicit_hidden(not v)
         ball.setVisible(v)
+        if v:
+            ball.ensure_visible()
         if not v:
             panel.hide()
 
@@ -150,8 +156,21 @@ def main():
     hotkey.triggered.connect(lambda: panel.toggle_near(ball.frameGeometry()))
     hotkey.start()
 
+    def on_app_state(state):
+        """应用回到前台时兜底恢复悬浮球。
+
+        悬浮球是 Qt.Tool 置顶窗口：某些 Windows 场景（打开外部程序/
+        文件对话框导致本应用失焦）下可能被系统隐藏，且不会自动恢复。
+        用户没在托盘关掉它时，回到前台就重新显示。
+        """
+        if state == Qt.ApplicationState.ApplicationActive:
+            ball.ensure_visible()
+
+    app.applicationStateChanged.connect(on_app_state)
+
     def on_quit():
         _quit_log("on_quit 开始")
+        ball.mark_shutdown()   # 退出销毁窗口属正常隐藏，不记诊断日志
         ball.save_position()
         cfg.save_config(conf)
         tray.hide()

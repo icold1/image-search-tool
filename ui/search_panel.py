@@ -40,6 +40,7 @@ class ResultThumb(QWidget):
     """单个结果缩略图：单击打开原图，按住拖到微信，右键菜单。"""
     open_requested = Signal(str)
     remove_requested = Signal(str)
+    hovered = Signal(object)        # 悬停信息（str 或 None 表示离开）
 
     def __init__(self, meta: dict, score: float, text_score=None, desc=None,
                  parent=None):
@@ -58,18 +59,28 @@ class ResultThumb(QWidget):
                              Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.setFixedSize(THUMB, self._pm.height() + 22)
         self._name = Path(self.path).name
-        tip = f"{self._name}\n{self.path}\n相似度: {self.score:.3f}"
+        # 悬停信息改为面板状态栏展示（Tooltip 在深色主题下会渲染成
+        # 跟随鼠标的黑色矩形且不可读）
+        info = f"{self._name}  ·  相似度 {self.score:.3f}"
         if meta.get("width") and meta.get("height"):
-            tip += f"\n尺寸: {meta['width']}x{meta['height']}"
+            info += f"  ·  {meta['width']}x{meta['height']}"
         if text_score is not None and meta.get("ocr"):
-            snippet = " ".join(str(meta["ocr"]).split())[:80]
-            tip += f"\n文字命中: {snippet}"
+            snippet = " ".join(str(meta["ocr"]).split())[:60]
+            info += f"  ·  文字命中: {snippet}"
         if desc is not None:
-            line = " ".join(str(desc.get("line", "")).split())[:120]
-            tip += f"\n描述命中: {line}"
-        self.setToolTip(tip)
+            line = " ".join(str(desc.get("line", "")).split())[:60]
+            info += f"  ·  描述命中: {line}"
+        self._hover_info = f"{info}\n{self.path}"
         self._press = None
         self._dragging = False
+
+    def enterEvent(self, event):
+        self.hovered.emit(self._hover_info)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.hovered.emit(None)
+        super().leaveEvent(event)
 
     def sizeHint(self):
         return self.size()
@@ -89,7 +100,7 @@ class ResultThumb(QWidget):
         p.drawRoundedRect(rect, 4, 4)
         p.setPen(QColor("white"))
         p.drawText(rect, Qt.AlignCenter, label)
-        # 文字命中角标
+        # 文字命中角标（左上角）
         if self.text_score is not None:
             old_font = p.font()
             badge = QRectF(x + 2, 6, 18, 16)
@@ -102,10 +113,10 @@ class ResultThumb(QWidget):
             p.setFont(f)
             p.drawText(badge, Qt.AlignCenter, "文")
             p.setFont(old_font)
-        # 描述（caption）命中角标
+        # 描述（caption）命中角标（右上角）
         if self.desc is not None:
             old_font = p.font()
-            badge = QRectF(x + 24, 6, 18, 16)
+            badge = QRectF(x + self._pm.width() - 20, 6, 18, 16)
             p.setPen(Qt.NoPen)
             p.setBrush(QColor("#3E9B5D"))
             p.drawRoundedRect(badge, 4, 4)
@@ -276,6 +287,7 @@ class SearchPanel(QWidget):
 
         # 初始为紧凑模式：不显示图片区
         self._set_results_mode(False)
+        self._last_summary = "就绪"   # 悬停离开缩略图后恢复的状态文本
 
     # ---------- 查询 ----------
     def _set_results_mode(self, show: bool):
@@ -337,16 +349,24 @@ class SearchPanel(QWidget):
             w = ResultThumb(meta, score, text_score, desc, self.container)
             w.open_requested.connect(os.startfile)
             w.remove_requested.connect(self.remove_requested)
+            w.hovered.connect(self._on_thumb_hover)
             self.grid.addWidget(w, i // COLS, i % COLS)
         self._set_results_mode(bool(results))
         if results:
             extra = f" · 文字命中 {n_text} 张" if n_text else ""
             if n_desc:
                 extra += f" · 描述命中 {n_desc} 张"
-            self.set_status(f"找到 {len(results)} 张{extra}"
-                            f" · {(ms / 1000):.2f} 秒 · 单击打开，拖到微信发送")
+            summary = (f"找到 {len(results)} 张{extra}"
+                       f" · {(ms / 1000):.2f} 秒 · 单击打开，拖到微信发送")
+            self._last_summary = summary
+            self.set_status(summary)
         else:
-            self.set_status("未找到结果，试试更通用的词")
+            self._last_summary = "未找到结果，试试更通用的词"
+            self.set_status(self._last_summary)
+
+    def _on_thumb_hover(self, info):
+        """缩略图悬停：状态栏展示文件名/尺寸/命中详情；离开恢复汇总。"""
+        self.set_status(info if info is not None else self._last_summary)
 
     def _on_failed(self, msg, gen):
         if gen != self._gen:

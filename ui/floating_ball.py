@@ -1,10 +1,27 @@
 """屏幕置顶悬浮球：可拖动、单击呼出查询面板、右键菜单。"""
+import time
+import traceback
+from pathlib import Path
+
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QActionGroup, QColor, QPainter, QPen, QRadialGradient
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
 SIZE = 52
 TOP_K_OPTIONS = (5, 10, 20, 50)
+
+_HIDE_LOG = (Path(__file__).resolve().parent.parent / "data" / "ball_hide.log")
+
+
+def _log_hide(reason: str) -> None:
+    """悬浮球被隐藏时的诊断日志（排查"神秘消失"问题）。"""
+    try:
+        _HIDE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(_HIDE_LOG, "a", encoding="utf-8") as f:
+            f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] {reason}\n")
+            f.write("".join(traceback.format_stack(limit=8)))
+    except Exception:
+        pass
 
 
 class FloatingBall(QWidget):
@@ -24,6 +41,7 @@ class FloatingBall(QWidget):
         self._press_global = None
         self._moved = False
         self._hover = False
+        self._explicit_hidden = False   # 用户通过托盘明确关闭时置 True
         self.setToolTip("图片语义搜索\n单击：打开查询框（或 Ctrl+Shift+空格）\n"
                         "右键：刷新索引 / 显示数量 / 退出")
         self._place(config)
@@ -35,10 +53,34 @@ class FloatingBall(QWidget):
         x = (pos[0] if isinstance(pos, list) and pos[0] is not None
              else screen.right() - SIZE - 16)
         y = (pos[1] if isinstance(pos, list) and pos[1] is not None else 8)
+        # 钳制到屏幕范围内：上次保存的位置可能因分辨率/多显示器变化而越界，
+        # 越界会让悬浮球"消失"
+        x = max(screen.left() + 4, min(x, screen.right() - SIZE - 4))
+        y = max(screen.top() + 4, min(y, screen.bottom() - SIZE - 4))
         self.move(x, y)
 
     def save_position(self):
         self._conf["ball_pos"] = [self.x(), self.y()]
+
+    def set_explicit_hidden(self, hidden: bool):
+        """记录"用户明确隐藏"状态，与被动消失区分开。"""
+        self._explicit_hidden = hidden
+
+    def mark_shutdown(self):
+        """退出流程标记：窗口销毁触发的 hideEvent 属正常，不再记日志。"""
+        self._explicit_hidden = True
+
+    def ensure_visible(self):
+        """兜底恢复：非用户主动隐藏却不可见时重新显示并置顶。"""
+        if not self._explicit_hidden and not self.isVisible():
+            _log_hide("ensure_visible：检测到非主动隐藏，自动恢复显示")
+            self.show()
+            self.raise_()
+
+    def hideEvent(self, event):
+        if not self._explicit_hidden:
+            _log_hide("hideEvent：悬浮球被隐藏（非用户主动）")
+        super().hideEvent(event)
 
     # ---------- 绘制 ----------
     def paintEvent(self, event):
