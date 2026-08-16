@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图片语义搜索工具 · 交互式架构图</title>
+<style>
+  :root {
+    --bg:#f5f6f8; --card:#fff; --ink:#22303f; --muted:#5c6b7d; --line:#dde3ea;
+    --accent:#2563eb; --accent-soft:#e8f0fe;
+    --r:#c2410c; --w:#047857; --both:#6d28d9; --m:#64748b;
+    --r-bg:#fdeee5; --w-bg:#e7f6ef; --both-bg:#f1ebfc; --m-bg:#eef2f7;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--ink); line-height:1.6; }
+  header { background:linear-gradient(120deg,#1e3a8a,#2563eb); color:#fff;
+           padding:28px 32px 20px; position:sticky; top:0; z-index:50;
+           box-shadow:0 2px 10px rgba(0,0,0,.15); }
+  header h1 { margin:0 0 4px; font-size:22px; }
+  header p { margin:0; opacity:.9; font-size:13px; }
+  nav.bar { display:flex; gap:6px; flex-wrap:wrap; padding:10px 0 0; }
+  nav.bar a { color:#fff; text-decoration:none; font-size:12.5px;
+              background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25);
+              border-radius:14px; padding:3px 12px; }
+  nav.bar a:hover { background:rgba(255,255,255,.3); }
+  main { max-width:1120px; margin:0 auto; padding:24px 20px 80px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px;
+            padding:20px 24px; margin-bottom:26px; scroll-margin-top:120px; }
+  h2 { font-size:19px; margin:0 0 6px; padding-bottom:8px; border-bottom:2px solid var(--accent-soft); }
+  h2 .sec-no { color:var(--accent); margin-right:6px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 10px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; align-items:center;
+            background:#f8fafc; border:1px solid var(--line); border-radius:8px;
+            padding:8px 14px; margin:10px 0; font-size:12.5px; }
+  .legend b { font-weight:600; }
+  .chip { display:inline-block; border-radius:10px; padding:0 9px; font-size:11.5px; font-weight:600; }
+  .chip.r { background:var(--r-bg); color:var(--r); border:1px solid #f3c9ae; }
+  .chip.w { background:var(--w-bg); color:var(--w); border:1px solid #b7e3cd; }
+  .chip.both { background:var(--both-bg); color:var(--both); border:1px solid #d7c9f2; }
+  .chip.m { background:var(--m-bg); color:var(--m); border:1px solid #cbd5e1; }
+  .diagram { background:#fcfdff; border:1px dashed var(--line); border-radius:8px;
+             padding:12px; margin:12px 0; overflow-x:auto; }
+  .diagram .mermaid { display:flex; justify-content:center; }
+  .hint { font-size:12px; color:var(--muted); margin-top:6px; text-align:center; }
+  details { border:1px solid var(--line); border-radius:8px; margin:8px 0;
+            background:#fbfcfe; overflow:hidden; }
+  details summary { cursor:pointer; padding:9px 14px; font-size:13.5px; font-weight:600;
+                    background:#f0f4fa; user-select:none; }
+  details summary:hover { background:var(--accent-soft); }
+  details[open] summary { border-bottom:1px solid var(--line); }
+  details .body { padding:10px 14px; font-size:13px; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:12.5px; }
+  th,td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#f0f4fa; font-weight:600; white-space:nowrap; }
+  tr:nth-child(even) td { background:#fafbfd; }
+  code { font-family:Consolas,"Courier New",monospace; background:#f0f3f7;
+         border-radius:4px; padding:1px 5px; font-size:12px; }
+  .note { background:#fffbeb; border:1px solid #f2e2a8; border-radius:8px;
+          padding:10px 14px; font-size:13px; margin:12px 0; }
+  .tip { background:#eef7ff; border:1px solid #c3ddf5; border-radius:8px;
+         padding:10px 14px; font-size:13px; margin:12px 0; }
+  .flash { animation:flashbg 1.8s ease 1; }
+  @keyframes flashbg { 0%{background:#fff3c4;} 100%{background:#fbfcfe;} }
+  footer { text-align:center; color:var(--muted); font-size:12.5px; padding:10px 0 40px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>图片语义搜索工具 · 交互式架构图</h1>
+  <p>image-captioin-and-select ｜ Chinese-CLIP + OCR + 本地 VLM caption + 三路 RRF 融合 ｜ 分支 feature/caption-fusion</p>
+  <nav class="bar">
+    <a href="#s1">① 整体架构</a>
+    <a href="#s2">② 文件数据流</a>
+    <a href="#s3">③ 启动/退出</a>
+    <a href="#s4">④ 建索引</a>
+    <a href="#s5">⑤ caption</a>
+    <a href="#s6">⑥ embed</a>
+    <a href="#s7">⑦ 三路融合查询</a>
+    <a href="#s8">⑧ 移除</a>
+    <a href="#s9">⑨ 模型生命周期</a>
+    <a href="#s10">⑩ CLI/评测</a>
+  </nav>
+</header>
+
+<main>
+
+<div class="legend">
+  <b>图例：</b>
+  <span class="chip r">橙 = 读文件</span>
+  <span class="chip w">绿 = 写文件</span>
+  <span class="chip both">紫 = 读写文件</span>
+  <span class="chip m">灰蓝 = 内存/模型运算（无磁盘 IO）</span>
+  <span class="chip" style="background:#fff7e8;color:#8a6d1a;border:1px solid #f2d59b;">米黄 = 磁盘上的文件</span>
+  <span style="margin-left:auto;">💡 点击图中节点可跳转到步骤详解；悬停节点查看说明</span>
+</div>
+
+<!-- ============ 1 整体架构 ============ -->
+<section id="s1">
+  <h2><span class="sec-no">①</span>整体架构</h2>
+  <p class="sub">六层结构：UI → 调度 → 语义 → 检索 → 数据 → 工具。点击任意模块节点跳转模块职责说明。</p>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart TB
+  subgraph L1["UI 层"]
+    U1["main.py 编排"]:::m
+    U2["floating_ball.py 悬浮球"]:::m
+    U3["search_panel.py 查询面板"]:::m
+    U4["tray.py 系统托盘"]:::m
+    U5["hotkey.py 全局热键"]:::m
+  end
+  subgraph L2["调度层（与 UI 解耦的核心管线）"]
+    W1["worker.py QThread 包装<br/>索引/caption/embed/搜索<br/>可取消·版本号"]:::m
+    P1["pipeline.py 核心编排<br/>建索引/建描述/建向量/融合查询"]:::m
+  end
+  subgraph L3["语义层（模型）"]
+    M1["model.py<br/>Chinese-CLIP ViT-L/14"]:::m
+    M2["captioner.py<br/>Qwen3-VL-2B 本地 VLM"]:::m
+    M3["embed.py<br/>Qwen3-Embedding-0.6B"]:::m
+    M4["ocr.py<br/>RapidOCR PP-OCRv4"]:::m
+    M5["model_manager.py<br/>加载/空闲卸载/显存回收"]:::m
+    M6["hub.py 权重下载<br/>ModelScope→HF"]:::m
+  end
+  subgraph L4["检索层"]
+    S1["searcher.py<br/>CLIP 余弦 top-k"]:::m
+    S2["captionindex.py<br/>描述向量两段式检索"]:::m
+    S3["textindex.py<br/>OCR jieba 倒排"]:::m
+    S4["pipeline.search<br/>RRF 三路融合"]:::m
+  end
+  subgraph L5["数据层"]
+    D1["store.py SQLite+npy<br/>线程安全·原子写·墓碑"]:::m
+    D2["scanner.py 目录扫描"]:::m
+    D3["thumbnailer.py 加载/缩略图"]:::m
+  end
+  subgraph L6["工具层"]
+    T1["config.py 配置"]:::m
+    T2["_win.py/_qt.py 环境引导"]:::m
+    T3["tools/index_cli.py"]:::m
+    T4["tools/vlm_bench.py"]:::m
+    T5["tools/smoke_test.py"]:::m
+  end
+  L1 --> W1 --> P1
+  P1 --> M1 & M2 & M3 & M4
+  M5 -. 管理 .-> M1 & M2 & M3
+  M6 -. 权重 .-> M2 & M3
+  P1 --> S1 & S2 & S3 --> S4
+  P1 --> D1 & D2 & D3
+  S1 --> D1
+  S2 --> D1
+  S3 --> D1
+  T1 --> P1
+  T3 & T4 & T5 -. 复用 .-> P1
+  click U1 goto "提示：入口编排，见「启动/退出」"
+  click P1 goto "提示：核心管线，见各流程章节"
+  click M1 goto "提示：语义路1（CLIP 全局对齐）"
+  click M2 goto "提示：语义路2原料（结构化描述）"
+  click M3 goto "提示：语义路2（描述文本向量）"
+  click M4 goto "提示：路3（图中文字识别）"
+  click M5 goto "提示：三模型生命周期，见 ⑨"
+  click S1 goto "提示：路1 余弦检索（纯 numpy）"
+  click S2 goto "提示：路2 两段式：聚合粗排→行级精排"
+  click S3 goto "提示：路3 倒排+子串加分，命中置顶"
+  click S4 goto "提示：RRF 加权融合，见 ⑦"
+  click D1 goto "提示：SQLite 元数据 + npy 向量矩阵，见 ②"
+  click D2 goto "提示：递归扫描 + mtime 增量对比"
+  click D3 goto "提示：EXIF纠正/降采样/缩略图缓存"
+  click T3 goto "提示：index/query/caption/embed/stats"
+  click T4 goto "提示：VLM A/B 评测（质量/速度/显存）"
+  click T5 goto "提示：独立 smoke 数据区端到端回归"
+  </pre>
+  <p class="hint">实线 = 调用/数据流；虚线 = 管理关系。点击节点查看说明。</p>
+  </div>
+</section>
+
+<!-- ============ 2 文件数据流 ============ -->
+<section id="s2">
+  <h2><span class="sec-no">②</span>文件读/写数据流总览</h2>
+  <p class="sub">模块（左）与磁盘文件（右）之间的读写关系；所有持久化数据在 data/ 下，原图只读。</p>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart LR
+  ST["store.py"]:::m
+  PL["pipeline.py + worker"]:::m
+  TH["thumbnailer.py"]:::m
+  MD["model.py + hub.py"]:::m
+  CP["captioner.py + embed.py"]:::m
+  CNF[("data/config.json<br/>配置+融合权重")]:::f
+  DB[("data/index.db<br/>SQLite WAL<br/>images/caption_lines/meta")]:::f
+  VEC[("data/vectors.npy<br/>CLIP 向量 N×768")]:::f
+  CVEC[("data/caption_vecs.npy<br/>描述行向量 M×dim")]:::f
+  CAGG[("data/caption_agg.npy<br/>每图聚合向量")]:::f
+  THUMB[("data/thumbs/&lt;md5&gt;.jpg<br/>缩略图缓存")]:::f
+  CKPT[("data/models/checkpoints/<br/>clip_cn_vit-l-14.pt")]:::f
+  CACHE[("data/models/cache/<br/>VLM+嵌入模型权重")]:::f
+  IMG[("img/ 原图<br/>只读")]:::f
+  LOG[("data/skipped.log<br/>quit.log position.log")]:::f
+  ST -- "读写" --> DB
+  ST -- "读" --> VEC
+  ST -- "写(原子)" --> VEC
+  ST -- "读" --> CVEC
+  ST -- "写(原子)" --> CVEC
+  ST -- "读" --> CAGG
+  ST -- "写(原子)" --> CAGG
+  PL -- "读" --> CNF
+  PL -- "写" --> CNF
+  PL -- "写(追加)" --> LOG
+  TH -- "读" --> IMG
+  TH -- "写" --> THUMB
+  MD -- "读/下载" --> CKPT
+  CP -- "读/下载" --> CACHE
+  MD -- "读" --> IMG
+  CP -- "读" --> IMG
+  linkStyle 0 stroke:#6d28d9,stroke-width:2px
+  linkStyle 1 stroke:#c2410c,stroke-width:2px
+  linkStyle 2 stroke:#047857,stroke-width:2px
+  linkStyle 3 stroke:#c2410c,stroke-width:2px
+  linkStyle 4 stroke:#047857,stroke-width:2px
+  linkStyle 5 stroke:#c2410c,stroke-width:2px
+  linkStyle 6 stroke:#047857,stroke-width:2px
+  linkStyle 7 stroke:#c2410c,stroke-width:2px
+  linkStyle 8 stroke:#047857,stroke-width:2px
+  linkStyle 9 stroke:#047857,stroke-width:2px
+  linkStyle 10 stroke:#047857,stroke-width:2px
+  linkStyle 11 stroke:#c2410c,stroke-width:2px
+  linkStyle 12 stroke:#047857,stroke-width:2px
+  linkStyle 13 stroke:#6d28d9,stroke-width:2px
+  linkStyle 14 stroke:#6d28d9,stroke-width:2px
+  linkStyle 15 stroke:#c2410c,stroke-width:2px
+  </pre>
+  <p class="hint">边颜色：橙=读，绿=写，紫=读写。原子写 = 先写 .tmp.npy 再 os.replace。</p>
+  </div>
+
+  <details id="d-file-table">
+    <summary>📄 文件读写明细表（点击展开）</summary>
+    <div class="body">
+    <table>
+      <tr><th>文件</th><th>格式</th><th>读</th><th>写</th><th>说明</th></tr>
+      <tr><td><code>img/</code>（用户图片目录）</td><td>jpg/png/webp/bmp/gif</td><td>✅</td><td>—</td><td>原图只读，绝不修改</td></tr>
+      <tr><td><code>data/config.json</code></td><td>JSON</td><td>启动/每次查询读融合参数</td><td>改设置/top-k/目录</td><td>配置持久化</td></tr>
+      <tr><td><code>data/index.db</code></td><td>SQLite(WAL)</td><td>✅</td><td>✅</td><td>images 元数据+status/error、caption_lines、meta；启动自动迁移</td></tr>
+      <tr><td><code>data/vectors.npy</code></td><td>float32</td><td>Store 初始化（含维度校验）</td><td>save_vectors 原子写</td><td>CLIP 图像向量，行号=id-1</td></tr>
+      <tr><td><code>data/caption_vecs.npy</code></td><td>fp16</td><td>ensure_loaded</td><td>embed 构建（原子写）</td><td>描述行向量，按 row_id 分组</td></tr>
+      <tr><td><code>data/caption_agg.npy</code></td><td>fp16</td><td>ensure_loaded</td><td>embed 构建（原子写）</td><td>每图 max-pool 聚合（快路径）</td></tr>
+      <tr><td><code>data/thumbs/&lt;md5&gt;.jpg</code></td><td>JPEG q82</td><td>UI 展示</td><td>建索引/变更时（可 force）</td><td>缩略图缓存</td></tr>
+      <tr><td><code>data/models/checkpoints/*.pt</code></td><td>权重</td><td>加载 CLIP</td><td>首次自动下载</td><td>1.63GB</td></tr>
+      <tr><td><code>data/models/cache/*</code></td><td>模型缓存</td><td>命中缓存</td><td>VLM/嵌入下载</td><td>2B≈4.3GB + 嵌入≈1.2GB</td></tr>
+      <tr><td><code>data/skipped.log</code> 等</td><td>文本</td><td>—</td><td>追加写</td><td>失败/调试日志</td></tr>
+    </table>
+    </div>
+  </details>
+</section>
+
+<!-- ============ 3 启动/退出 ============ -->
+<section id="s3">
+  <h2><span class="sec-no">③</span>启动与退出流程</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart LR
+  B1["ensure_env_dlls<br/>注册 conda DLL 目录"]:::r
+  B2["ensure_qt_env<br/>QT_PLUGIN_PATH"]:::r
+  B3["QApplication 创建"]:::m
+  B4["load_config<br/>读配置"]:::r
+  B5{"image_dir<br/>有效?"}:::m
+  B6["QFileDialog 选目录"]:::m
+  B7["save_config<br/>写配置"]:::w
+  B8["Store 初始化<br/>建表/迁移/WAL"]:::both
+  B9["load vectors.npy<br/>维度校验"]:::r
+  B10["重建墓碑<br/>removed 集合"]:::m
+  B11["悬浮球/面板/托盘/热键"]:::m
+  B12{"count==0 或<br/>缺 OCR?"}:::m
+  B13["自动 start_index<br/>IndexWorker"]:::m
+  B14["进入事件循环<br/>等待交互"]:::m
+  B1 --> B2 --> B3 --> B4 --> B5
+  B5 -- "无效" --> B6 --> B7 --> B8
+  B5 -- "有效" --> B8
+  B8 --> B9 --> B10 --> B11 --> B12
+  B12 -- "是" --> B13 --> B14
+  B12 -- "否" --> B14
+  click B1 goto "提示：&lt;env&gt;/Library/bin 加入 DLL 搜索路径（cuDNN）"
+  click B4 goto "提示：data/config.json"
+  click B7 goto "提示：data/config.json"
+  click B8 goto "提示：data/index.db（CREATE/ALTER，PRAGMA journal_mode=WAL）"
+  click B9 goto "提示：data/vectors.npy，维度不符直接报错退出"
+  click B13 goto "提示：见 ④ 建索引流程"
+  </pre>
+  <p class="hint">退出序列：保存位置/配置 → 停索引与搜索线程 → store.close()（原子写 vectors + 关库）→ TerminateProcess 绕过 DLL 卸载崩溃。</p>
+  </div>
+</section>
+
+<!-- ============ 4 建索引 ============ -->
+<section id="s4">
+  <h2><span class="sec-no">④</span>建索引流程（IndexWorker → pipeline.build_index）</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart TB
+  A1["ensure_model<br/>CLIP 懒加载"]:::r
+  A2["known_map<br/>读已索引 mtime 映射"]:::r
+  A3["scan_folder<br/>递归扫目录"]:::r
+  A4["diff_scan<br/>mtime 对比"]:::m
+  A5["删除磁盘已消失记录<br/>墓碑机制"]:::w
+  A6["load_image<br/>EXIF纠正/降采样"]:::r
+  A7["encode_images<br/>CLIP 批量编码"]:::m
+  A8["save_thumbnail<br/>生成/强制重建"]:::w
+  A9{"新图?"}:::m
+  A10["append<br/>写元数据+向量补零对齐"]:::w
+  A11["update<br/>全量刷新元数据+向量"]:::w
+  A12["save_vectors<br/>原子写"]:::w
+  A13{"还有批次?"}:::m
+  A14["rows_missing_ocr<br/>取 ocr IS NULL"]:::r
+  A15["load_image + RapidOCR<br/>识别文字"]:::r
+  A16["set_ocr 写回<br/>空串防重跑"]:::w
+  A17["textindex.add<br/>加入倒排"]:::m
+  A18{"还有待 OCR?"}:::m
+  A19["save_vectors<br/>收尾原子写"]:::w
+  A1 --> A2 --> A3 --> A4 --> A5
+  A5 --> A6 --> A7 --> A8 --> A9
+  A9 -- "新" --> A10 --> A12
+  A9 -- "旧(内容变更)" --> A11 --> A12
+  A12 --> A13
+  A13 -- "是" --> A6
+  A13 -- "否" --> A14 --> A15 --> A16 --> A17 --> A18
+  A18 -- "是" --> A15
+  A18 -- "否" --> A19
+  click A1 goto "提示：权重在 data/models/checkpoints/"
+  click A2 goto "提示：data/index.db（path→mtime）"
+  click A3 goto "提示：img/ 原图目录，os.walk+stat 只读"
+  click A5 goto "提示：data/index.db DELETE + 向量行置零"
+  click A6 goto "提示：img/&lt;原图&gt;；失败写 skipped.log"
+  click A8 goto "提示：data/thumbs/&lt;md5(路径)&gt;.jpg"
+  click A10 goto "提示：data/index.db INSERT + 内存矩阵按 id 补零"
+  click A11 goto "提示：data/index.db UPDATE mtime/size/宽高/格式/thumb"
+  click A12 goto "提示：data/vectors.npy（tmp.npy+os.replace）"
+  click A14 goto "提示：data/index.db WHERE ocr IS NULL"
+  click A16 goto "提示：data/index.db UPDATE ocr 字段"
+  click A19 goto "提示：data/vectors.npy（原子写）"
+  </pre>
+  <p class="hint">阶段一（向量嵌入，GPU）→ 阶段二（OCR，CPU）。每批完成即写库，中断可续传。</p>
+  </div>
+  <details id="d-idx">
+    <summary>📋 建索引步骤明细表</summary>
+    <div class="body"><table>
+      <tr><th>#</th><th>步骤</th><th>模块/函数</th><th>磁盘 IO</th></tr>
+      <tr><td>1</td><td>确保 CLIP 加载</td><td><code>pipeline.ensure_model</code>→<code>model.py</code></td><td><span class="chip r">读</span> checkpoints（缺失时下载）</td></tr>
+      <tr><td>2-4</td><td>扫描对比 mtime → 新增/删除集合</td><td><code>scanner.py</code></td><td><span class="chip r">读</span> img/ + index.db</td></tr>
+      <tr><td>5a-5d</td><td>加载图→CLIP 编码→缩略图→入库（新 append/旧 update 全量刷新）</td><td><code>thumbnailer / model / store</code></td><td><span class="chip r">读</span> 原图；<span class="chip w">写</span> thumbs、index.db</td></tr>
+      <tr><td>6</td><td>批次结束原子保存向量</td><td><code>store.save_vectors</code></td><td><span class="chip w">写</span> vectors.npy</td></tr>
+      <tr><td>7</td><td>OCR 增量：识别→写回→倒排</td><td><code>ocr.py / store / textindex</code></td><td><span class="chip r">读</span> 原图、index.db；<span class="chip w">写</span> index.db</td></tr>
+    </table></div>
+  </details>
+</section>
+
+<!-- ============ 5 caption ============ -->
+<section id="s5">
+  <h2><span class="sec-no">⑤</span>caption 描述生成流程（CaptionWorker → build_captions）</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart TB
+  C1["读配置<br/>caption_model/token上限"]:::r
+  C2["腾显存：卸载 embed<br/>（可选 CLIP）"]:::m
+  C3["make_captioner<br/>hub 解析权重"]:::r
+  C4["rows_missing_caption<br/>取待处理清单"]:::r
+  C5{"--only 清单?"}:::m
+  C6["按清单路径过滤"]:::m
+  C7["load_image<br/>读原图"]:::r
+  C8["VLM describe<br/>生成结构化 JSON"]:::m
+  C9{"JSON 可解析?"}:::m
+  C10["1.5倍上限重试一次"]:::m
+  C11["set_caption 写库<br/>立即提交（断点续传）"]:::w
+  C12["set_caption status=failed<br/>记录 error"]:::w
+  C13{"还有待处理?"}:::m
+  C14["finally：卸载 VLM<br/>释放显存"]:::m
+  C1 --> C2 --> C3 --> C4 --> C5
+  C5 -- "是" --> C6 --> C7
+  C5 -- "否" --> C7
+  C7 --> C8 --> C9
+  C9 -- "是" --> C11
+  C9 -- "否" --> C10 --> C9
+  C9 -- "仍失败" --> C12
+  C11 --> C13
+  C12 --> C13
+  C13 -- "是" --> C7
+  C13 -- "否" --> C14
+  click C1 goto "提示：data/config.json（caption_max_new_tokens=600）"
+  click C3 goto "提示：权重本地优先→ModelScope 缓存→HF"
+  click C4 goto "提示：data/index.db WHERE caption IS NULL"
+  click C7 goto "提示：img/&lt;原图&gt;"
+  click C11 goto "提示：data/index.db UPDATE caption（成功逐条提交）"
+  click C12 goto "提示：data/index.db status='failed' + skipped.log"
+  click C14 goto "提示：gc + cuda.empty_cache，批次结束必卸"
+  </pre>
+  <p class="hint">caption 产物只是检索第二路的原料——还需 ⑥ embed 才能参与检索。实测 59 秒/张（8GB 卡），全量可中断续传。</p>
+  </div>
+  <details id="d-cap">
+    <summary>📋 caption 步骤明细表</summary>
+    <div class="body"><table>
+      <tr><th>#</th><th>步骤</th><th>模块/函数</th><th>磁盘 IO</th></tr>
+      <tr><td>1</td><td>读 caption 配置</td><td><code>config.load_config</code></td><td><span class="chip r">读</span> config.json</td></tr>
+      <tr><td>2</td><td>腾显存（卸载 embed，可选 CLIP）</td><td><code>model_manager.unload</code></td><td><span class="chip m">内存</span></td></tr>
+      <tr><td>3</td><td>加载 VLM（权重本地/ModelScope/HF）</td><td><code>captioner / hub</code></td><td><span class="chip r">读</span> cache（缺失时 <span class="chip w">写</span> 下载）</td></tr>
+      <tr><td>4-6</td><td>取清单（支持 --only / --retry-failed）</td><td><code>store.rows_missing_caption</code></td><td><span class="chip r">读</span> index.db</td></tr>
+      <tr><td>7-10</td><td>加载图→VLM 生成→JSON 清洗→截断重试</td><td><code>thumbnailer / captioner</code></td><td><span class="chip r">读</span> 原图；<span class="chip m">内存</span> GPU</td></tr>
+      <tr><td>11-12</td><td>成功写 caption；失败写 status/error</td><td><code>store.set_caption</code></td><td><span class="chip w">写</span> index.db（+skipped.log）</td></tr>
+      <tr><td>14</td><td>批次结束必卸 VLM</td><td><code>model_manager</code></td><td><span class="chip m">内存</span></td></tr>
+    </table></div>
+  </details>
+</section>
+
+<!-- ============ 6 embed ============ -->
+<section id="s6">
+  <h2><span class="sec-no">⑥</span>caption 向量构建流程（EmbedWorker → build_caption_vectors）</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart TB
+  E1["加载 Qwen3-Embedding-0.6B<br/>slot embed 注册"]:::r
+  E2["iter_captioned_rows<br/>读全部 caption JSON"]:::r
+  E3["caption_to_lines<br/>字段化 ≤12 行/图"]:::m
+  E4["批量 encode<br/>均值池化→归一化→MRL"]:::m
+  E5["每图 max-pool 聚合向量"]:::m
+  E6["写 caption_vecs.npy<br/>fp16 原子写"]:::w
+  E7["写 caption_agg.npy<br/>fp16 原子写"]:::w
+  E8["set_caption_lines<br/>row_id→line_count"]:::w
+  E9["set_meta<br/>维度/模型/时间版本"]:::w
+  E10["热加载进内存<br/>立即可查"]:::m
+  E1 --> E2 --> E3 --> E4 --> E5
+  E5 --> E6 & E7
+  E6 & E7 --> E8 --> E9 --> E10
+  click E2 goto "提示：data/index.db caption 字段"
+  click E6 goto "提示：data/caption_vecs.npy（M×dim，tmp+replace）"
+  click E7 goto "提示：data/caption_agg.npy（N×dim）"
+  click E8 goto "提示：data/index.db caption_lines 表"
+  click E9 goto "提示：data/index.db meta 表（caption_dim/embed_model）"
+  </pre>
+  <p class="hint">重启后由 ensure_loaded 校验维度并从 DB 确定性重建命中行文本，无需重跑 embed。</p>
+  </div>
+</section>
+
+<!-- ============ 7 查询 ============ -->
+<section id="s7">
+  <h2><span class="sec-no">⑦</span>查询流程（三路 RRF 融合 · SearchWorker → pipeline.search）</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart TB
+  Q0["输入查询词<br/>版本号 + cancel 检查"]:::m
+  Q1["ensure_model<br/>CLIP touch/加载"]:::r
+  Q2["encode_text<br/>切词→向量平均→归一化"]:::m
+  Q3["路1 searcher.search<br/>矩阵乘 top-100"]:::m
+  Q4["get_meta 逐条取元数据<br/>过滤文件不存在"]:::r
+  Q5["路2 ensure_loaded<br/>读 caption 矩阵"]:::r
+  Q6["embed.query_vector<br/>Instruct 指令前缀编码"]:::m
+  Q7["两段式：聚合 top-200<br/>→ 行级 max 精排"]:::m
+  Q8["路3 OCR 倒排<br/>jieba+子串加分0.5"]:::m
+  Q9["RRF 融合<br/>Σ w/(60+rank+1)"]:::m
+  Q10["OCR 命中置顶<br/>融合补足到 k"]:::m
+  Q11["结果 4 元组<br/>(meta,分,文字,描述)"]:::m
+  Q12["UI 渲染缩略图<br/>文/述 角标"]:::r
+  Q0 --> Q1 --> Q2 --> Q3 --> Q4 --> Q9
+  Q2 --> Q6 --> Q7 --> Q9
+  Q5 --> Q7
+  Q9 --> Q10 --> Q11 --> Q12
+  Q8 --> Q10
+  click Q1 goto "提示：冷启动读 checkpoints 权重；常驻则仅 touch"
+  click Q4 goto "提示：data/index.db 每条命中一次 SELECT"
+  click Q5 goto "提示：data/caption_vecs.npy + caption_agg.npy（缺失自动降级）"
+  click Q7 goto "提示：快路径聚合打分 → 仅候选做行级精确重排"
+  click Q9 goto "提示：w_clip=1.0 w_caption=0.6 rrf_k=60（config 可调）"
+  click Q12 goto "提示：data/thumbs/&lt;md5&gt;.jpg"
+  </pre>
+  <p class="hint">实测：热查询 110~160ms；冷启动约 16s（CLIP+嵌入模型加载）。caption 路失败自动降级为纯 CLIP，不影响主路。</p>
+  </div>
+  <details id="d-qry">
+    <summary>📋 查询步骤明细表</summary>
+    <div class="body"><table>
+      <tr><th>#</th><th>步骤</th><th>模块/函数</th><th>磁盘 IO</th></tr>
+      <tr><td>0</td><td>取消检查：stop 事件置位 → SearchCancelled 静默丢弃（UI 版本号双保险）</td><td><code>worker/searcher/textindex</code></td><td><span class="chip m">内存</span></td></tr>
+      <tr><td>1-2</td><td>确保 CLIP 加载；查询文本编码（多词取平均）</td><td><code>ensure_model / model.encode_text</code></td><td><span class="chip r">读</span> checkpoints（冷启动）</td></tr>
+      <tr><td>3-4</td><td>路1：余弦 top-100 + 逐条元数据</td><td><code>searcher / store.get_meta</code></td><td><span class="chip r">读</span> index.db（每命中一条）</td></tr>
+      <tr><td>5-7</td><td>路2：caption 两段式检索（缺失/失败降级）</td><td><code>captionindex / embed</code></td><td><span class="chip r">读</span> caption 两个 npy + index.db + config.json；降级时 <span class="chip w">写</span> skipped.log</td></tr>
+      <tr><td>8-9</td><td>路3 OCR 倒排；RRF 加权融合</td><td><code>textindex / pipeline</code></td><td><span class="chip m">内存</span></td></tr>
+      <tr><td>10-12</td><td>OCR 置顶 + 补足到 k；UI 渲染</td><td><code>pipeline / search_panel</code></td><td><span class="chip r">读</span> thumbs/</td></tr>
+    </table></div>
+  </details>
+</section>
+
+<!-- ============ 8 移除 ============ -->
+<section id="s8">
+  <h2><span class="sec-no">⑧</span>图片移除流程（右键结果 → 从索引移除）</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart LR
+  R1["remove_requested(path)"]:::m
+  R2["row_by_path<br/>查 row_id"]:::r
+  R3["DELETE images+caption_lines<br/>向量行置零+墓碑"]:::w
+  R4["textindex.remove<br/>倒排移除"]:::m
+  R5["save_vectors<br/>原子写"]:::w
+  R1 --> R2 --> R3 --> R4 --> R5
+  click R2 goto "提示：data/index.db SELECT id WHERE path"
+  click R3 goto "提示：data/index.db DELETE + 内存 removed 集合"
+  click R5 goto "提示：data/vectors.npy（原子写）"
+  </pre>
+  <p class="hint">原图文件不删除；墓碑行由 valid_mask 在检索时剔除，跨重启由 DB 重建。</p>
+  </div>
+</section>
+
+<!-- ============ 9 模型生命周期 ============ -->
+<section id="s9">
+  <h2><span class="sec-no">⑨</span>模型生命周期（model_manager.py）</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart LR
+  LM1["clip 槽位<br/>Chinese-CLIP ≈1.7GB"]:::m
+  LM2["embed 槽位<br/>Qwen3-Embedding ≈1.2GB"]:::m
+  LM3["vlm 槽位<br/>Qwen3-VL-2B ≈5GB"]:::m
+  LM4["守护线程每秒巡检<br/>idle_seconds 超时卸载"]:::m
+  LM5{"idle_unload_seconds<br/>>0?"}:::m
+  LM6["常驻不卸载<br/>（默认 0，查询速度优先）"]:::m
+  LM7["unload：释放引用<br/>gc + cuda.empty_cache"]:::m
+  LM1 --> LM5
+  LM2 --> LM5
+  LM5 -- "否" --> LM6
+  LM5 -- "是" --> LM4 --> LM7
+  LM3 -. caption 批次结束必卸 .-> LM7
+  click LM1 goto "提示：建索引/查询时懒加载；caption 期间可配置卸载"
+  click LM2 goto "提示：查询或 embed 时懒加载；caption 批次开始必卸"
+  click LM3 goto "提示：caption 批次专用；finally 必卸"
+  </pre>
+  <p class="hint">8GB 卡预算：常驻 ≈3GB；caption 阶段 VLM+CLIP ≈7GB。编码函数入口捕获本地引用，卸载与在途推理不冲突。</p>
+  </div>
+</section>
+
+<!-- ============ 10 CLI ============ -->
+<section id="s10">
+  <h2><span class="sec-no">⑩</span>CLI 工具与评测脚本</h2>
+  <div class="diagram">
+  <pre class="mermaid">
+flowchart TB
+  subgraph CLI["tools/index_cli.py（复用 pipeline）"]
+    K1["index 目录"]:::m
+    K2["query 词"]:::m
+    K3["caption --only --retry-failed"]:::m
+    K4["embed"]:::m
+    K5["stats"]:::m
+  end
+  subgraph VB["tools/vlm_bench.py"]
+    V1["读清单(剥BOM)"]:::r
+    V2["逐模型逐图 describe"]:::m
+    V3["统计 秒/张·吞吐·峰值显存"]:::m
+    V4["写 &lt;模型名&gt;.json"]:::w
+  end
+  subgraph SM["tools/smoke_test.py"]
+    S1["生成 6 张测试图"]:::w
+    S2["独立 smoke 区建索引"]:::both
+    S3["查询断言 + 原子写回读"]:::m
+  end
+  K1 -.-> K3 -.-> K4 -.-> K2
+  K5 -.-> K2
+  V1 --> V2 --> V3 --> V4
+  S1 --> S2 --> S3
+  click K3 goto "提示：--only 清单试跑；--retry-failed 重试失败行"
+  click V4 goto "提示：data/vlm_bench/&lt;模型名&gt;.json"
+  click S2 goto "提示：data/smoke/ 独立数据区，不碰正式库"
+  </pre>
+  </div>
+  <details id="d-cli">
+    <summary>📋 CLI 子命令说明</summary>
+    <div class="body"><table>
+      <tr><th>命令</th><th>作用</th><th>关键磁盘 IO</th></tr>
+      <tr><td><code>index &lt;目录&gt;</code></td><td>复用 build_index；写 image_dir 到配置</td><td><span class="chip both">读写</span> index.db / vectors.npy / thumbs / config.json</td></tr>
+      <tr><td><code>query "词"</code></td><td>复用 pipeline.search，打印 文/述 标签</td><td><span class="chip r">读</span> index.db、向量矩阵</td></tr>
+      <tr><td><code>caption</code></td><td>复用 build_captions（支持清单试跑）</td><td><span class="chip r">读</span> 原图/清单；<span class="chip w">写</span> index.db</td></tr>
+      <tr><td><code>embed</code></td><td>复用 build_caption_vectors</td><td><span class="chip w">写</span> caption 两个 npy + index.db</td></tr>
+      <tr><td><code>stats</code></td><td>索引/OCR/caption 状态统计</td><td><span class="chip r">读</span> index.db</td></tr>
+    </table></div>
+  </details>
+</section>
+
+<footer>图片语义搜索工具 · 交互式架构图 ｜ 本地 mermaid.min.js，离线可用 ｜ 基于 feature/caption-fusion 分支实现</footer>
+</main>
+
+<script src="mermaid.min.js"></script>
+<script>
+  // 节点 id -> 详情锚点映射（点击图中节点平滑滚动到对应详情/章节）
+  var anchors = {
+    B8: "s2", B9: "s2", A1: "s4", A12: "s4", A14: "s4",
+    C1: "s5", C4: "s5", C11: "s5",
+    E1: "s6", E2: "s6",
+    Q1: "s7", Q3: "s7", Q5: "s7", Q9: "s7", Q12: "s7",
+    R2: "s8", R3: "s8",
+    LM1: "s9", LM2: "s9", LM3: "s9",
+    K3: "s10", V4: "s10", S2: "s10",
+    T3: "s10", T4: "s10", T5: "s10"
+  };
+  window.goto = function (id) {
+    var target = anchors[id] ? document.getElementById(anchors[id])
+                            : document.getElementById("d-" + id.toLowerCase());
+    if (target) {
+      if (target.tagName === "DETAILS") target.open = true;
+      target.classList.remove("flash");
+      void target.offsetWidth;            // 重新触发高亮动画
+      target.classList.add("flash");
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "loose",
+    theme: "base",
+    themeVariables: {
+      primaryColor: "#e8f0fe", primaryBorderColor: "#9db9f2",
+      primaryTextColor: "#22303f", lineColor: "#94a3b8",
+      fontSize: "13px", fontFamily: "Segoe UI, Microsoft YaHei, sans-serif"
+    },
+    flowchart: { curve: "basis", htmlLabels: true, padding: 6 }
+  });
+</script>
+</body>
+</html>
